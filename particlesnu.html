@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html>
+
+    <script type="text/javascript" src="gl-matrix-min.js"></script>
+    <script type="text/javascript" src="dat.gui.min.js"></script>
+
+    <script id="shader-fs" type="x-shader/x-fragment">
+		precision mediump float;
+
+		varying vec4 vColor;
+		varying vec3 normal	;
+		varying vec4 Light;
+		varying vec4 position;
+		varying vec4 mvposition;
+		varying float iscu;
+
+		void main(void) {
+		   //gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+					vec4 color= vec4(0.0,0.0,0.0,1.0);
+
+					//vec3 lightpos= vec3(0.0,900000.0,0);
+					vec3 lightdir= normalize(Light.xyz-mvposition.xyz);
+					float diffuse= max(0.0,(dot(-lightdir,normal)));
+					//if(diffuse>=0.001)
+
+					//color=vec4(1.0,0.0,0.0,1.0);
+
+					//else
+
+					//color=diffuse*vColor;
+					color.xyz=  (diffuse)*vColor.xyz;
+					if( iscu >= 0.1)
+					{
+					color.w = 0.2* diffuse * vColor.w;
+					}
+					//color.w= vColor.w;
+
+				   gl_FragColor = color;
+
+		}
+    </script>
+
+    <script id="shader-vs" type="x-shader/x-vertex">
+		attribute vec3 aVertexPosition;
+		attribute vec4 aVertexColor;
+		attribute vec3 aVertexNormal;
+
+		varying vec4 vColor;
+
+		uniform mat4 uMVMatrix;
+		uniform mat4 uPMatrix;
+		uniform mat3 uNormalMatrix;
+		uniform vec3 lightpos;
+		uniform bool backface;
+		uniform bool iscube;
+
+		varying vec4 Light;
+		varying vec3 normal;
+		varying vec4 position;
+		varying vec4 mvposition;
+		varying float iscu;
+
+		void main(void) {
+			mvposition = uMVMatrix * vec4(aVertexPosition, 1.0);
+			position= uPMatrix *  mvposition;
+			gl_Position= position;
+			vec3 transnormal= uNormalMatrix * aVertexNormal;
+			transnormal=normalize(transnormal);
+			normal= transnormal;
+			gl_PointSize = 1.;
+			vColor = aVertexColor;
+			Light= uMVMatrix * vec4(lightpos,1.0);
+			iscu=float(iscube);
+
+		}
+    </script>
+
+    <script>
+
+        //globals
+        var particles= [];
+
+        psys= new particleSystem();
+        var lightpos=vec3.create();	
+        var eye=vec3.create();
+        var center=vec3.create();
+        var up= vec3.create();
+        var lookatmat= mat4.create();
+        var mvMatrix = mat4.create();
+        var pMatrix = mat4.create();
+        var normalMatrix= mat3.create();
+        var vertexPositionBuffer; 
+        var vertexNormalBuffer;
+        var cubecolorbuffer;
+        var boxposbuffer;
+        var cubeindbuffer;
+        var cubeindcolorbuffer;
+        var time = 0;
+        var timestep = 0.1;
+        var numofparticles=9550;
+        var maxparticles= 20000;
+        var boxsize=90;
+        var restitution=0.45;
+        var gravconst=0.0674;
+        var border=2*boxsize+boxsize;
+        var EmissionRate=10;
+        var parkours=0;
+        var lifesize=200;
+        var inivels= 11.1;
+        var colorbuffer;
+        var colors2= [];
+        var colors1= [];
+        var rotx=0;
+        var roty=0;
+        vec3.set(lightpos,0,-0.75,0);
+        var attverts=[];
+        var cubeverts=[];
+        var randverts=[];
+        var infiverts=[];
+        var	scalefact=0.5;
+        var currentlyPressedKeys = {};
+        var speedlimit=400;
+
+
+
+
+
+
+        var  cube= [
+            // Front face
+            -1.0, -1.0,  1.0,
+            1.0, 1.0, 1.0,
+            -1.0, 1.0, 1.0,
+
+            -1.0, -1.0,  1.0,
+            1.0, 1.0, 1.0,
+            1.0, -1.0 , 1.0,
+
+            // Back face
+            -1.0, -1.0, - 1.0,
+            1.0, 1.0, -1.0,
+            -1.0, 1.0, -1.0,
+
+            -1.0, -1.0,  -1.0,
+            1.0, 1.0, -1.0,
+            1.0, -1.0 , -1.0,
+
+            // Top face
+            -1.0, 1.0,  -1.0,
+            1.0, 1.0, 1.0,
+            -1.0, 1.0, 1.0,
+
+            -1.0, 1.0,  -1.0,
+            1.0, 1.0, 1.0,
+            1.0, 1.0 , -1.0,
+
+            // Right face
+            1.0, -1.0, -1.0,
+            1.0, 1.0, 1.0,
+            1.0, 1.0, -1.0,
+
+            1.0, -1.0, -1.0,
+            1.0, 1.0, 1.0,
+            1.0, -1.0, 1.0,
+
+
+            // Left face
+            -1.0, -1.0, -1.0,
+            -1.0, 1.0, 1.0,
+            -1.0, 1.0, -1.0,
+
+            -1.0, -1.0, -1.0,
+            -1.0, 1.0, 1.0,
+            -1.0, -1.0, 1.0
+
+        ];
+
+        var cubottom=[
+            // Bottom face
+            -1.0, -1.0,  -1.0,
+            1.0, -1.0, 1.0,
+            -1.0, -1.0, 1.0,
+
+            -1.0, -1.0,  -1.0,
+            1.0, -1.0, 1.0,
+            1.0, -1.0 , -1.0,
+
+        ];
+
+        var cubottom2=[
+            // Bottom face
+            -1.0, -1.0001,  -1.0,
+            1.0, -1.0001, 1.0,
+            -1.0, -1.0001, 1.0,
+
+            -1.0, -1.0001,  -1.0,
+            1.0, -1.0001, 1.0,
+            1.0, -1.0001 , -1.0,
+
+        ];
+
+
+        var cubecols= [
+            0.1, 0.1,  0.1, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+
+
+
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+
+
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+            0.7, 0.7,  0.7, 1.0,
+        ] ;
+
+
+        //Color for transparent faces of cube
+
+        for (var i=0;i<cubecols.length;++i)
+        {
+            if(cubecols[i]<0.99)
+            {
+                if(((i+1)%4==1)) //R
+                {
+                    cubecols[i]=0.0;
+
+                }
+                else if(((i+1)%4==2)) //G
+                {
+                    cubecols[i]=0.15;
+
+                }
+                else  //B
+                {
+                    cubecols[i]=1;
+
+                }
+
+            }
+        }
+
+        var cubecols25=[
+            0.0,  0.0,  0.0, 1.0,
+            0.0, 0.0,  0.0, 1.0,
+            0.0,  0.0,  0.0, 1.0,
+            0.0,  0.0,  0.0, 1.0,
+            0.0,  0.0,  0.0, 1.0,
+            0.0,  0.0,  0.0, 1.0,
+        ];
+
+        var cubecols2=[
+            1.0,  1.0,  1.0, 1.0,
+            1.0, 1.0,  1.0, 1.0,
+            1.0,  1.0,  1.0, 1.0,
+            1.0,  1.0,  1.0, 1.0,
+            1.0,  1.0,  1.0, 1.0,
+            1.0,  1.0,  1.0, 1.0,
+        ];
+
+        var cubeNormals = [
+            // Front face
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+
+
+            // Back face
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+
+
+
+            // Top face
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+
+
+
+
+            // Right face
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+
+
+            // Left face
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0,
+
+        ];
+
+
+        var botNormal=[      // Bottom face
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+
+        ];
+        var botNormal2=[
+
+            // bot fake face
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+        ];
+
+
+
+
+
+
+        function getShader(gl, id) {
+            var shaderScript = document.getElementById(id);
+            if (!shaderScript) {
+                return null;
+            }
+
+            var str = "";
+            var k = shaderScript.firstChild;
+            while (k) {
+                if (k.nodeType == 3)
+                    str += k.textContent;
+                k = k.nextSibling;
+            }
+
+            var shader;
+            if (shaderScript.type == "x-shader/x-fragment") {
+                shader = gl.createShader(gl.FRAGMENT_SHADER);
+            } else if (shaderScript.type == "x-shader/x-vertex") {
+                shader = gl.createShader(gl.VERTEX_SHADER);
+            } else {
+                return null;
+            }
+
+            gl.shaderSource(shader, str);
+            gl.compileShader(shader);
+
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                alert(gl.getShaderInfoLog(shader));
+                return null;
+            }
+
+            return shader;
+        }
+
+
+
+
+        function setMatrixUniforms(iscube) {
+            gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
+            gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
+
+            mat3.normalFromMat4(normalMatrix,mvMatrix);		
+            gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform,false,normalMatrix);
+            gl.uniform1i(shaderProgram.backfaceUniform,false,0);
+            gl.uniform3fv(shaderProgram.lightpositionUniform,lightpos);
+
+            gl.uniform1i(shaderProgram.iscubeUniform,iscube);
+        }
+
+
+
+
+
+        function particleSystem()
+        {
+            this.numofparticles = 500;
+            this.EmissionRate = 10;
+            this.lifesize= 200;
+            this.gravity= false;
+            this.attractors=0;
+            this.scalefact=2;
+            this.randomspawn=false;
+            this.restitution=0.4;
+            this.explode=0;
+            this.explocount=0;
+            this.prepareAttractors= function()
+            {	
+                //cube attractor
+                var c1=vec3.create();
+                var c2=vec3.create();
+                var c3=vec3.create();
+                var c4=vec3.create();
+                var c5=vec3.create();
+                var c6=vec3.create();
+                var c7=vec3.create();
+                var c8=vec3.create();
+
+
+                vec3.set(c1,boxsize/this.scalefact,boxsize/this.scalefact,boxsize/this.scalefact);
+                vec3.set(c2,boxsize/this.scalefact,-boxsize/this.scalefact,boxsize/this.scalefact);
+                vec3.set(c3,-boxsize/this.scalefact,-boxsize/this.scalefact,boxsize/this.scalefact);
+                vec3.set(c4,-boxsize/this.scalefact,boxsize/this.scalefact,boxsize/this.scalefact);
+                vec3.set(c5,boxsize/this.scalefact,boxsize/this.scalefact,-boxsize/this.scalefact);
+                vec3.set(c6,boxsize/this.scalefact,-boxsize/this.scalefact,-boxsize/this.scalefact);
+                vec3.set(c7,-boxsize/this.scalefact,-boxsize/this.scalefact,-boxsize/this.scalefact);
+                vec3.set(c8,-boxsize/this.scalefact,boxsize/this.scalefact,-boxsize/this.scalefact);
+
+
+                cubeverts.push(c1);
+                cubeverts.push(c2);
+                cubeverts.push(c3);
+                cubeverts.push(c4);
+                cubeverts.push(c5);
+                cubeverts.push(c6);
+                cubeverts.push(c7);
+                cubeverts.push(c8);
+
+
+                //random point attractors
+
+                for(var i=0;i<10;++i)
+                {
+                    var temp=vec3.create();
+                    randverts.push(vec3.random(temp,boxsize));
+                }
+
+
+                // diagonal attractor
+                var inf1=vec3.create();
+                var inf2=vec3.create();
+
+                vec3.set(inf1,-boxsize/1.5,-boxsize/1.5,-boxsize/1.5);
+                vec3.set(inf2,boxsize/1.5,boxsize/1.5,boxsize/1.5);
+
+                infiverts.push(inf1);
+                infiverts.push(inf2);
+
+            }
+
+
+
+            this.Boom = function()
+            {
+                this.explode=1;
+
+            }
+
+
+
+        }
+
+
+
+
+
+
+
+
+        function particle(pos,vel,force,mass,life)
+        {
+            this.mass = mass;
+            this.position= vec3.create();
+            vec3.set(this.position,pos[0],pos[1],pos[2]);
+
+            this.velocity= vec3.create();
+            vec3.set(this.velocity,vel[0],vel[1],vel[2]);
+
+            this.force=vec3.create();
+            vec3.set(this.force,force[0],force[1],force[2]);
+
+            this.life = life;
+        }
+
+
+
+
+
+
+
+
+        function collisionResponse(normal,direction)
+        {
+            var normlen;
+            var normcomp=vec3.create();
+            var tangent=vec3.create();
+            var newdir= vec3.create();
+            //vec3.normalize(direction,direction);
+            normlen=vec3.dot(normal,direction);
+            vec3.scale(normcomp,normal,normlen);
+            vec3.subtract(tangent,direction,normcomp);
+            //vec3.scale(tangent,tangent,-1);
+            vec3.scale(normcomp,normcomp,psys.restitution);
+            vec3.scaleAndAdd(newdir,tangent,normcomp,-1);
+            //	vec3.scale(newdir,newdir,1/normlen);
+            //vec3.normalize(newdir,newdir);
+
+            return newdir;
+
+        }
+
+
+
+
+
+
+
+
+
+
+        particle.prototype.update = function(timestep) 
+        {	
+
+            this.life-=timestep;
+            if(this.life>0)
+            {
+                this.computeforces();
+
+                //console.log(JSON.parse(JSON.stringify(this.position)));
+                //	console.log(JSON.parse(JSON.stringify(particles[2].position)));		
+
+                var direction =vec3.create();
+
+
+                var tempa= vec3.create();
+                var tempb= vec3.create();
+
+
+
+                //calculate direction
+                var acceleration=vec3.create();
+                vec3.add(this.velocity,this.velocity,vec3.scale(acceleration,this.force,timestep/(this.mass*2)));
+                vec3.add(direction,vec3.scale(tempa,this.velocity,timestep),vec3.scale(tempb,this.force,timestep*timestep/(this.mass*2)));
+
+                //this.velocity=direction;
+
+
+                //update position
+                //vec3.add(this.position,this.position,this.position);
+                vec3.add(this.position,this.position,direction);
+
+
+
+                if(this.position[0]>=boxsize-0.1)
+                {
+                    //console.log(JSON.parse(JSON.stringify(direction)));
+
+                    var normal=vec3.create();
+                    vec3.set(normal,1,0,0);
+                    this.velocity=collisionResponse(normal,this.velocity);
+                    //console.log(JSON.parse(JSON.stringify(direction)));
+
+                    this.position[0]=(boxsize)-0.1;
+                }
+                if(this.position[0]<=-boxsize+0.1)
+                {
+                    var normal=vec3.create();
+                    vec3.set(normal,-1,0,0);
+                    this.velocity=collisionResponse(normal,this.velocity);
+                    this.position[0]=-(boxsize)+0.1;
+                }
+                if(this.position[1]>=boxsize-0.1)
+                {
+                    var normal=vec3.create();
+                    vec3.set(normal,0,1,0);
+                    this.velocity=collisionResponse(normal,this.velocity);
+                    this.position[1]=(boxsize)-0.1;
+                }
+                if(this.position[1]<=-boxsize+1.1)
+                {
+                    var normal=vec3.create();
+                    vec3.set(normal,0,-1,0);
+                    this.velocity=collisionResponse(normal,this.velocity);
+                    this.position[1]= -(boxsize)+1.1;
+                }
+                if(this.position[2]>=boxsize-0.1)
+                {
+                    var normal=vec3.create();
+                    vec3.set(normal,0,0,1);
+                    this.velocity=collisionResponse(normal,this.velocity);
+                    this.position[2]=(boxsize)-0.1;
+                }
+                if(this.position[2]<=-boxsize+0.1)
+                {
+                    var normal=vec3.create();
+                    vec3.set(normal,0,0,-1);
+                    this.velocity=collisionResponse(normal,this.velocity);
+                    this.position[2]=-(boxsize)+0.1;
+                }
+
+
+
+            }
+            else if(this.life>-0.5)
+            {
+                vec3.set(this.position,0,0,0);
+            }
+            else if(this.life<-0.5)
+            {
+
+                if(parkours<psys.EmissionRate)
+                {
+                    if(psys.randomspawn)
+                    {
+                        var randsp=vec3.create();
+                        vec3.random(randsp,boxsize/1.1);
+                        vec3.copy(this.position,randsp);
+                    }
+                    parkours+=1;
+                    this.life = (Math.random()+0.1)*psys.lifesize; 
+                    this.velocity[0]=(Math.random()-0.5)*inivels;
+                    this.velocity[1]=(Math.random()-0.5)*inivels;
+                    this.velocity[2]=(Math.random()-0.5)*inivels;
+
+                }
+            }
+
+
+
+        };
+
+
+
+
+
+
+
+
+
+        function initGL(canvas) {
+            try {
+                gl = canvas.getContext("experimental-webgl");
+                gl.viewportWidth = canvas.width;
+                gl.viewportHeight = canvas.height;
+            } catch (e) {
+            }
+            if (!gl) {
+                alert("Could not initialize WebGL");
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+        function initShaders() {
+            var fragmentShader = getShader(gl, "shader-fs");
+            var vertexShader = getShader(gl, "shader-vs");
+            shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                alert("Could not initialise shaders");
+            }
+            gl.useProgram(shaderProgram);
+
+            //attributes
+            shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+            shaderProgram.vertexColorAttribute= gl.getAttribLocation(shaderProgram, "aVertexColor");
+            shaderProgram.vertexNormalAttribute=gl.getAttribLocation(shaderProgram, "aVertexNormal");
+
+
+            gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
+            gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
+            gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+            //uniforms
+            shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+            shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+            shaderProgram.normalMatrixUniform=gl.getUniformLocation(shaderProgram,"uNormalMatrix");
+            shaderProgram.iscubeUniform=gl.getUniformLocation(shaderProgram,"iscube");
+            shaderProgram.lightpositionUniform=gl.getUniformLocation(shaderProgram,"lightpos");
+            shaderProgram.backfaceUniform=gl.getUniformLocation(shaderProgram,"backface");
+        }
+
+
+
+
+
+
+
+
+
+        function setBuffers() {
+            cubecolorbuffer = gl.createBuffer();
+            vertexNormalBuffer = gl.createBuffer();
+            vertexPositionBuffer = gl.createBuffer();
+            cubeindcolorbuffer = gl.createBuffer();
+            cubeindbuffer = gl.createBuffer();
+            boxposbuffer=gl.createBuffer();
+            colorbuffer=gl.createBuffer();
+            //gl.bindBuffer(gl.ARRAY_BUFFER,colorbuffer);
+            var vertices=[0.4, 0.6 ,0.5 ,-0.2, 0.33 ,-0.77];
+            var colors= [ 1.0, 0.0, 0.0, 1.0,
+                         0.0, 1.0, 0.0, 1.0,
+                         0.0, 0.0, 1.0, 1.0];
+
+            colorbuffer.itemSize = 4;
+            colorbuffer.numItems = 30;
+
+            vertexPositionBuffer.itemSize = 3;
+            vertexPositionBuffer.numItems = psys.numofparticles;
+
+
+
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors),gl.STATIC_DRAW);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, boxposbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube), gl.STATIC_DRAW);
+            boxposbuffer.itemSize= 3;
+            boxposbuffer.numItems=30;
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeNormals),gl.STATIC_DRAW);
+            vertexNormalBuffer.itemSize=  3;
+            vertexNormalBuffer.numItems = 30;
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, cubecolorbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubecols), gl.STATIC_DRAW);
+            cubecolorbuffer.itemSize= 4;
+            cubecolorbuffer.numItems=30;
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        function createParticles(howmany)
+        {
+
+            for (var i=0;i<howmany;++i)
+            {
+
+
+                //set colors
+                colors1=colors1.concat([Math.random(),Math.random(),Math.random(),1]);
+
+
+                var	positionx=Math.random()-0.5;
+                var	positiony=Math.random()-0.5;
+                var	positionz=Math.random()-0.5;
+
+
+                var	positionx=0;
+                var	positiony=0;
+                var	positionz=0;
+
+                var	inivelx= Math.random()-0.5;
+                var	inively= Math.random()-0.5;
+                var	inivelz=Math.random()-0.5;
+                //inivelx*=150;
+                //inively*=150;
+                //inivelz*=150;
+
+                //inivelx=0;
+                //inively=0;
+                //inivelz=0;
+
+
+                var	inimass= Math.random()+1;
+                if(inimass>0.999999)
+                {
+                    // inimass*=100;
+                }
+                var	forcey= Math.random()-0.5;
+                var	forcex= Math.random()-0.5;
+                var	forcez= Math.random()-0.5;
+
+                var	forcex=0;
+                var	forcey=0;
+                //var	forcey=-5*inimass;
+                var	forcez=0;
+
+                //var life= Math.random()*10000;
+                var life = 0;    
+
+                var position=vec3.create();
+                vec3.set(position,positionx,positiony,positionz);
+
+                var velocity=vec3.create();
+                vec3.set(velocity,inivelx,inively,inivelz);
+
+                var force=vec3.create();
+                vec3.set(force,forcex,forcey,forcez);
+
+
+                particles.push(new particle(position,velocity,force,inimass,life));
+                //console.log(JSON.parse(JSON.stringify(particles[i])));
+
+            }
+        }
+
+
+
+        particle.prototype.unigrav=function()
+
+        {
+            for(var i=0;i<psys.numofparticles-1;++i)
+            {
+
+                var distance=vec3.distance(particles[i].position,this.position);
+
+                if(distance>epsilon)
+                {
+                    //console.log('test');
+                    var distvec1=vec3.create();
+
+                    vec3.subtract(distvec1,particles[i].position,this.position);
+
+                    vec3.normalize(distvec1,distvec1);
+
+                    //console.log(JSON.parse(JSON.stringify(distvec1)));
+
+                    var vecscale= gravconst* particles[i].mass*this.mass/(distance*distance);
+
+                    //console.log(JSON.parse(JSON.stringify(distance)));
+
+                    vec3.add(this.force,this.force,vec3.scale(distvec1,distvec1,vecscale));
+
+                    //console.log('test');
+                }
+
+            } 		
+
+        }
+
+
+
+
+
+        particle.prototype.computeforces= function()
+        {
+            epsilon=0.0001;
+
+            // console.log(JSON.parse(JSON.stringify(particles[1].position)));
+
+            //this.unigrav();
+            //attractor at zero
+
+            if(psys.gravity)
+            {
+                var grav= vec3.create();
+                vec3.set(grav,0,-10*this.mass,0);
+                vec3.copy(this.force,grav);
+            }
+            else
+            {
+                vec3.set(this.force,0,0,0);
+            }
+
+            if(psys.attractors==1)
+            {
+                attverts=randverts;
+            }
+            else if(psys.attractors==2)
+            {
+                attverts=cubeverts;
+            }
+            else if(psys.attractors==3)
+            {
+                attverts=infiverts;
+            }
+            else
+            {
+                attverts=[];
+            }
+
+
+            if(psys.explode)
+            {
+                var explosion= vec3.create();
+                vec3.random(explosion,boxsize/1.25);
+
+                var impulse= vec3.create();
+
+                vec3.subtract(impulse,this.position,explosion);
+                var distance= vec3.distance(this.position,explosion);
+                vec3.add(this.force, this.force,vec3.scale(impulse,impulse,0.05*distance));
+
+                psys.explocount+=1;
+                if(psys.explocount>=particles.length)
+                {
+                    psys.explocount=0;
+                    psys.explode=0;
+                }
+            }
+
+
+            for(var i=0;i<attverts.length;++i)
+            {
+                var tempforce= vec3.create();
+                vec3.subtract(tempforce,attverts[i],this.position);
+                var distance=vec3.distance(attverts[i],this.position);
+                vec3.add(this.force,this.force,vec3.scale(tempforce,tempforce,this.mass/(0.5*psys.scalefact*distance)));
+
+            }
+
+
+        }
+
+
+
+
+
+
+
+        function updateSystem()
+        {
+            psys.numofparticles=Math.round(psys.numofparticles);
+            psys.EmissionRate=Math.round(psys.EmissionRate);
+            psys.lifesize=Math.round(psys.lifesize);
+            curno=particles.length;
+            if(curno<psys.numofparticles)
+            {
+                createParticles(psys.numofparticles-curno);
+            }
+            else if(curno>psys.numofparticles)
+            {
+                deleteParticles(curno-psys.numofparticles);
+            }
+
+
+        }
+
+
+
+
+        function deleteParticles(howmany)
+        {
+            for(var i=0;i<howmany-1;++i)
+            {
+                particles.shift();
+                //  console.log(JSON.parse(JSON.stringify(particles.length)));
+
+            }
+
+
+        }
+
+
+
+
+        function updateParticles(timestep)
+        {
+            parkours=0;
+            for (var i=0; i< psys.numofparticles;i++)
+            {
+                particles[i].update(timestep);
+            }
+
+
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        function createCube()
+        {
+            //gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            gl.enable(gl.BLEND);
+            gl.disable(gl.DEPTH_TEST);
+            //gl.blendFuncSeparate(GLenum srcRGB, GLenum dstRGB,GLenum srcAlpha, GLenum dstAlpha);
+
+            var mvbackup= mat4.create();
+            mat4.copy(mvbackup,mvMatrix);
+
+            var scalar= vec3.create();
+            vec3.set(scalar,boxsize,boxsize,boxsize);
+
+            mat4.scale(mvMatrix,mvMatrix,scalar);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, boxposbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute,3,gl.FLOAT, false,0,0);
+
+            boxposbuffer.itemSize= 3;
+            boxposbuffer.numItems=30;
+
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, cubecolorbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubecols),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexColorAttribute,4,gl.FLOAT, false,0,0);
+
+
+            vertexNormalBuffer.itemSize= 3;
+            vertexNormalBuffer.numItems=30;
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubeNormals), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute,3,gl.FLOAT, false,0,0);
+
+
+
+            setMatrixUniforms(1);
+            gl.drawArrays(gl.TRIANGLES, 0, boxposbuffer.numItems);
+
+
+
+
+
+
+            gl.disable(gl.BLEND);	   
+            gl.enable(gl.DEPTH_TEST);
+            //gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+
+            ///////PARTICLES
+
+            var antiscale= vec3.create();
+            vec3.set(antiscale,1/boxsize,1/boxsize,1/boxsize);
+            mat4.scale(mvMatrix,mvMatrix,antiscale);
+
+            drawParticles();
+            mat4.scale(mvMatrix,mvMatrix,scalar);
+            ////////PARTICLES
+
+            //gl.disable(gl.DEPTH_TEST);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, boxposbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(cubottom),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute,3,gl.FLOAT, false,0,0);
+
+            boxposbuffer.numItems=6;
+
+            gl.bindBuffer(gl.ARRAY_BUFFER,cubecolorbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubecols2),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexColorAttribute,4,gl.FLOAT, false,0,0);
+
+            cubecolorbuffer.numItems=6;
+
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(botNormal), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute,3,gl.FLOAT, false,0,0);
+
+            vertexNormalBuffer.numItems=6;
+
+
+            setMatrixUniforms(0);
+            gl.drawArrays(gl.TRIANGLES, 0, boxposbuffer.numItems);
+
+            ////////////////CHEAT
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, boxposbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(cubottom2),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute,3,gl.FLOAT, false,0,0);
+
+            boxposbuffer.numItems=6;
+
+            gl.bindBuffer(gl.ARRAY_BUFFER,cubecolorbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubecols2),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexColorAttribute,4,gl.FLOAT, false,0,0);
+
+            cubecolorbuffer.numItems=6;
+
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(botNormal2), gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute,3,gl.FLOAT, false,0,0);
+
+            vertexNormalBuffer.numItems=6;
+
+
+            setMatrixUniforms(0);
+            gl.drawArrays(gl.TRIANGLES, 0, boxposbuffer.numItems);
+
+
+            //////ENDOFCHEAT
+
+
+
+            gl.enable(gl.BLEND);
+            gl.disable(gl.DEPTH_TEST);
+
+            mat4.copy(mvMatrix,mvbackup);
+
+
+
+        }
+
+
+
+
+
+
+
+
+        function drawParticles()
+        {
+
+            var vertices=[];
+            for(var i=0;i<psys.numofparticles;++i)
+            {
+                //	console.log(JSON.parse(JSON.stringify(particles[i].position)));
+                vertices.push(particles[i].position[0]);
+                vertices.push(particles[i].position[1]);
+                vertices.push(particles[i].position[2]);
+            }  
+
+
+
+            //var vertices=[0.4, 0.6 ,0.5 ,-0.2, 0.33 ,-0.77];
+            // gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.DYNAMIC_DRAW);
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);	
+            //    gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+            gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+            vertexPositionBuffer.numItems= psys.numofparticles;
+
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors1),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexColorAttribute,colorbuffer.itemSize,gl.FLOAT, false,0,0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+            vertexNormalBuffer.numItems=psys.numofparticles;
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);	
+            //    gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+            gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+
+
+            setMatrixUniforms(0);
+            gl.drawArrays(gl.POINTS, 0, vertexPositionBuffer.numItems);
+
+
+        }
+
+
+
+
+        function safespace()
+        {
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, boxposbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(cubottom),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute,3,gl.FLOAT, false,0,0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER,cubecolorbuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(bottomFace),gl.STATIC_DRAW);
+            gl.vertexAttribPointer(shaderProgram.vertexColorAttribute,3,gl.FLOAT, false,0,0);
+
+            setMatrixUniforms();
+            gl.drawArrays(gl.TRIANGLES, 0, boxposbuffer.numItems);
+        }
+
+
+
+        function display() 
+        {
+            handleKeys();
+            time+=timestep;
+            updateSystem();
+            updateParticles(timestep);
+
+
+            vec3.set(lightpos,0.75*Math.cos(0.3*time), -0.5 ,0.75*Math.sin(0.3*time));
+
+
+
+            gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            mat4.perspective(pMatrix,90, 4/3, boxsize, -boxsize);
+            //mat4.ortho(pMatrix,-border,border,-border,border,-border,2*border);
+            mat4.identity(mvMatrix);
+
+
+            vec3.set(eye,0.5,-0.5,-border);
+            vec3.set(center,0,0,0);
+            vec3.set(up,0,1,0);
+
+
+            mat4.lookAt(lookatmat,eye,center,up);
+            mat4.multiply(mvMatrix,lookatmat,mvMatrix);
+
+            mat4.rotateX(mvMatrix,mvMatrix,rotx);
+            mat4.rotateY(mvMatrix,mvMatrix,roty);
+
+
+            createCube();
+
+
+            requestAnimationFrame(display);
+
+        }
+
+
+        function handleKeyDown(event) {
+            currentlyPressedKeys[event.keyCode||event.which] = true;
+        }
+
+
+        function handleKeyUp(event) {
+            currentlyPressedKeys[event.keyCode||event.which] = false;
+        }
+
+
+        function handleKeys() {
+            if (currentlyPressedKeys[39]) {
+                // right
+                roty -= 0.05;
+            }
+            if (currentlyPressedKeys[37]) {
+                // left
+                roty += 0.05;
+            }
+            if (currentlyPressedKeys[38]) {
+                // Up cursor key
+                rotx += 0.05;
+            }
+            if (currentlyPressedKeys[40]) {
+                // Down cursor key
+                rotx -= 0.05;
+            }
+        }
+
+
+
+
+
+        function webGLStart() {
+
+            var gui = new dat.GUI();
+            gui.add(psys, 'numofparticles',2,7000);
+            gui.add(psys, 'lifesize', 10, 500);
+            gui.add(psys, 'EmissionRate',1,50);
+            gui.add(psys, 'gravity');
+            gui.add(psys, 'randomspawn');
+            gui.add(psys, 'attractors',{None:0, Random: 1, Cube:2, Diagonal:3})
+            gui.add(psys, 'restitution',0.1,1);
+            gui.add(psys, 'Boom');
+
+
+            var canvas = document.getElementById("mycanvas");
+            canvas.width= screen.width;
+            canvas.height= screen.height;
+            initGL(canvas);
+            initShaders();
+            setBuffers();
+            psys.prepareAttractors();
+            createParticles(psys.numofparticles);
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            gl.enable(gl.DEPTH_TEST);
+            // gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+            // gl.enable(gl.BLEND);
+            //gl.disable(gl.DEPTH_TEST);
+            document.onkeydown = handleKeyDown;
+            document.onkeyup = handleKeyUp;
+
+
+            display();
+        }
+    </script>
+
+
+    <body onload="webGLStart();">
+
+    </body>
+    <canvas id="mycanvas" style="border:none;" width= Math.floor(screen.width) height=Math.floor(screen.height) ></canvas>
+
+</html>
+
+
